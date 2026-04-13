@@ -9,10 +9,13 @@ import threading
 
 app = Flask(__name__)
 
-# Render 环境下，端口由环境变量决定
-PORT = int(os.environ.get("PORT", 5000))
+# 智能判断 Token 存储路径
+# 如果 /data 目录存在（Render 环境），则用 /data，否则用当前目录
+if os.path.exists("/data"):
+    TOKEN_FILE = "/data/token_cache.json"
+else:
+    TOKEN_FILE = "token_cache.json"
 
-TOKEN_FILE = "token_cache.json"
 APP_TOKEN_CHECK_TIMEOUT = 10
 HTTP_TIMEOUT = 10
 
@@ -35,6 +38,11 @@ def load_token_cache():
 def save_token_cache():
     with token_cache_lock:
         try:
+            # 确保目录存在（针对 Render /data 目录）
+            dir_name = os.path.dirname(TOKEN_FILE)
+            if dir_name and not os.path.exists(dir_name):
+                os.makedirs(dir_name)
+            
             with open(TOKEN_FILE, "w", encoding="utf-8") as f:
                 json.dump(token_cache, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -466,4 +474,6 @@ def clear_cache():
 
 if __name__ == "__main__":
     load_token_cache()
+    # Render 环境下，端口由环境变量决定
+    PORT = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=PORT, debug=False)
