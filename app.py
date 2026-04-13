@@ -9,12 +9,8 @@ import threading
 
 app = Flask(__name__)
 
-# 智能判断 Token 存储路径
-# 如果 /data 目录存在（Render 环境），则用 /data，否则用当前目录
-if os.path.exists("/data"):
-    TOKEN_FILE = "/data/token_cache.json"
-else:
-    TOKEN_FILE = "token_cache.json"
+# 【重要】写死为 Render 的持久化磁盘路径
+TOKEN_FILE = "/data/token_cache.json"
 
 APP_TOKEN_CHECK_TIMEOUT = 10
 HTTP_TIMEOUT = 10
@@ -29,16 +25,18 @@ def load_token_cache():
         try:
             with open(TOKEN_FILE, "r", encoding="utf-8") as f:
                 token_cache = json.load(f)
-        except Exception:
+        except Exception as e:
+            print(f"Load cache error: {e}")
             token_cache = {}
     else:
+        print("Token file not found, starting with empty cache.")
         token_cache = {}
 
 
 def save_token_cache():
     with token_cache_lock:
         try:
-            # 确保目录存在（针对 Render /data 目录）
+            # 确保 /data 目录存在
             dir_name = os.path.dirname(TOKEN_FILE)
             if dir_name and not os.path.exists(dir_name):
                 os.makedirs(dir_name)
