@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zepp Life 步数助手</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: linear-gradient(135deg, #f5f7fb, #eef3ff);
+            color: #1f2937;
+        }
+        .wrapper {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 24px 16px 40px;
+        }
+        .hero {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .hero h1 {
+            margin: 0;
+            font-size: 32px;
+            color: #111827;
+        }
+        .card {
+            background: #ffffff;
+            border-radius: 18px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+            padding: 22px;
+            margin-bottom: 20px;
+        }
+        .form-card {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 14px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #374151;
+            font-weight: 600;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 13px 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 12px;
+            outline: none;
+            font-size: 15px;
+            transition: all 0.2s;
+            background: #fff;
+        }
+        .form-group input:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.10);
+        }
+        .submit-btn {
+            width: 100%;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 700;
+            padding: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .submit-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 20px rgba(37, 99, 235, 0.22);
+        }
+        .submit-btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .result {
+            display: none;
+            margin-top: 6px;
+            padding: 14px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.7;
+        }
+        .result.success {
+            display: block;
+            background: #ecfdf5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+        }
+        .result.error {
+            display: block;
+            background: #fef2f2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+        .section-title {
+            margin: 0 0 14px;
+            font-size: 20px;
+            color: #111827;
+        }
+        .desc-list, .faq-list {
+            margin: 0;
+            padding-left: 18px;
+            color: #374151;
+            line-height: 1.8;
+            font-size: 15px;
+        }
+        .faq-item {
+            margin-bottom: 14px;
+        }
+        .faq-q {
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 6px;
+        }
+        .faq-a {
+            color: #4b5563;
+        }
+        .tips {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #6b7280;
+        }
+        .footer {
+            text-align: center;
+            font-size: 13px;
+            color: #9ca3af;
+            margin-top: 10px;
+        }
+        @media (max-width: 640px) {
+            .hero h1 {
+                font-size: 26px;
+            }
+            .card {
+                padding: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="hero">
+            <h1>Zepp Life 步数助手</h1>
+        </div>
+
+        <div class="card">
+            <div class="form-card">
+                <div class="form-group">
+                    <label for="account">账号（邮箱）</label>
+                    <input type="text" id="account" placeholder="请输入 Zepp 账号邮箱">
+                </div>
+                <div class="form-group">
+                    <label for="password">密码</label>
+                    <input type="password" id="password" placeholder="请输入 Zepp 账号密码">
+                </div>
+                <div class="form-group">
+                    <label for="steps">目标步数</label>
+                    <input type="number" id="steps" value="12000" min="1000" max="98000" placeholder="请输入目标步数">
+                    <div class="tips">建议步数设置在 8000 - 30000 之间，更自然也更稳妥。</div>
+                </div>
+                <button id="submitBtn" class="submit-btn" onclick="submitSteps()">立即提交</button>
+                <div id="result" class="result"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="section-title">使用说明</h2>
+            <ol class="desc-list">
+                <li>从应用商店搜索下载 zepp life 或 zepp 软件，不支持第三方登陆，所以没有账号的请用邮箱注册。</li>
+                <li>登陆 Zepp Life 后点击“我的 -> 第三方接入”，选择绑定微信或支付宝。</li>
+                <li>用浏览器访问本平台，填写 Zepp Life 的账号、密码和你要走的步数，提交即可。</li>
+                <li>如遇账号密码正确但还是提示错误，请登陆一次你的 Zepp Life 软件账号。</li>
+            </ol>
+        </div>
+
+        <div class="card">
+            <h2 class="section-title">常见问题</h2>
+            <div class="faq-list">
+                <div class="faq-item">
+                    <div class="faq-q">Q: 刷步数安全吗？</div>
+                    <div class="faq-a">A: 完全安全。我们采用官方 API 接口，不会泄露您的个人信息，只是帮助您修改步数数据。建议步数设置在合理范围内（8000-30000 步）。</div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-q">Q: 为什么要使用 Zepp Life？</div>
+                    <div class="faq-a">A: Zepp Life（原小米运动）是官方认可的健康数据平台，支持与微信运动、支付宝运动等主流平台同步，是目前最稳定的刷步数解决方案。</div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-q">Q: 刷步数会被检测到吗？</div>
+                    <div class="faq-a">A: 我们的技术完全模拟正常运动数据，与真实步数无异。建议设置合理的步数范围，避免过于异常的数值。</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            本工具仅供学习与研究使用，请合理设置步数。
+        </div>
+    </div>
+
+    <script>
+        async function submitSteps() {
+            const account = document.getElementById('account').value.trim();
+            const password = document.getElementById('password').value.trim();
+            const steps = document.getElementById('steps').value.trim();
+            const btn = document.getElementById('submitBtn');
+            const resultDiv = document.getElementById('result');
+
+            if (!account || !password) {
+                resultDiv.className = 'result error';
+                resultDiv.style.display = 'block';
+                resultDiv.innerText = '请填写账号和密码';
+                return;
+            }
+
+            if (!steps) {
+                resultDiv.className = 'result error';
+                resultDiv.style.display = 'block';
+                resultDiv.innerText = '请填写目标步数';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = '提交中...';
+            resultDiv.style.display = 'none';
+            resultDiv.className = 'result';
+
+            try {
+                const response = await fetch('/api/update_steps', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ account, password, steps })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    resultDiv.className = 'result success';
+                    resultDiv.style.display = 'block';
+                    resultDiv.innerText = data.message;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.style.display = 'block';
+                    resultDiv.innerText = data.message;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.style.display = 'block';
+                resultDiv.innerText = '请求失败，请检查后端是否正常运行';
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '立即提交';
+            }
+        }
+    </script>
+</body>
+</html>
