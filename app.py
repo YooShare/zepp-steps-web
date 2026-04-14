@@ -16,8 +16,55 @@ if os.path.exists("/data"):
 else:
     TOKEN_FILE = "token_cache.json"
 
-# ⚠️【已更新】最新去重后的静态代理列表
+# ⚠️【终极合并版】包含之前所有提供的代理，已去重
 PROXY_LIST = [
+    # --- 第一批 (上一轮) ---
+    "http://111.48.191.1:7890",
+    "http://101.251.204.174:8080",
+    "http://47.111.175.196:7897",
+    "http://13.230.49.39:8080",
+    "http://59.46.216.131:30001",
+    "http://112.111.13.253:7890",
+    "http://43.217.141.124:8008",
+    "http://56.68.77.224:9067",
+    "http://56.68.77.224:9772",
+    "http://56.68.77.224:40974",
+    "http://56.68.77.224:44799",
+    "http://56.68.77.224:42939",
+    "http://56.68.77.224:19328",
+    "http://56.68.77.224:53261",
+    "http://56.68.77.224:3125",
+    "http://56.68.77.224:12994",
+    "http://13.212.222.137:8787",
+    "http://13.212.222.137:31281",
+    "http://120.92.108.86:7890",
+    "http://13.212.222.137:11571",
+    "http://13.212.222.137:969",
+    "http://13.212.222.137:28024",
+    "http://13.212.222.137:476",
+    "http://13.212.222.137:11169",
+    "http://13.212.222.137:29503",
+    "http://61.49.87.3:80",
+    "http://56.68.77.224:29522",
+    "http://13.212.14.16:9061",
+    "http://13.212.14.16:1036",
+    "http://13.212.222.137:44909",
+    "http://13.212.222.137:57365",
+    "http://13.233.195.7:7928",
+    "http://13.233.195.7:562",
+    "http://95.40.79.184:9940",
+    "http://13.212.110.200:2450",
+    "http://13.212.14.16:45684",
+    "http://56.68.77.224:999",
+    "http://43.208.16.199:4002",
+    "http://13.212.14.16:16779",
+    "http://13.212.222.137:28080",
+    "http://56.68.77.224:20479",
+    "http://13.212.222.137:4474",
+    "http://116.171.106.15:3443",
+    "http://39.98.86.246:8118",
+    
+    # --- 第二批 (这一轮) ---
     "http://120.26.104.146:8089",
     "http://47.104.28.135:8081",
     "http://47.121.129.129:6000",
@@ -90,9 +137,8 @@ PROXY_LIST = [
     "http://8.138.133.207:6666",
 ]
 
-# 极速模式配置
-HTTP_TIMEOUT = 5  # 超时从10s降到5s，加快失败切换
-APP_TOKEN_CHECK_TIMEOUT = 5
+HTTP_TIMEOUT = 10
+APP_TOKEN_CHECK_TIMEOUT = 10
 
 # --- 全局变量 ---
 token_cache_lock = threading.Lock()
@@ -103,9 +149,14 @@ proxy_index_lock = threading.Lock()
 current_proxy_index = 0
 
 def get_next_proxy():
+    """
+    轮询获取一个代理。
+    如果列表为空，返回 None (直连)。
+    """
     global current_proxy_index
     if not PROXY_LIST:
         return None
+    
     with proxy_index_lock:
         proxy = PROXY_LIST[current_proxy_index % len(PROXY_LIST)]
         current_proxy_index += 1
@@ -122,6 +173,7 @@ def load_token_cache():
     else:
         token_cache = {}
 
+
 def save_token_cache():
     with token_cache_lock:
         try:
@@ -133,21 +185,26 @@ def save_token_cache():
         except Exception as e:
             print(f"Save token cache failed: {e}")
 
+
 def is_phone(account):
     return re.match(r"^(1)\d{10}$", account) is not None
 
+
 def now_ts():
     return int(time.time())
+
 
 def mask_account(account):
     if len(account) <= 7:
         return account
     return account[:3] + "****" + account[-4:]
 
+
 def get_account_key(account):
     if is_phone(account):
         return f"+86{account}"
     return account
+
 
 def get_client_login_headers():
     return {
@@ -161,28 +218,37 @@ def get_client_login_headers():
         "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
     }
 
-def make_request(method, url, use_proxy=True, **kwargs):
-    """
-    极速请求函数：
-    1. 如果 use_proxy 为真，先试一个代理，失败则立即直连。
-    2. 超时时间极短。
-    """
-    # 1. 尝试代理 (只试1个，不行就撤)
-    if use_proxy and PROXY_LIST:
-        proxy_str = get_next_proxy()
-        proxies = {"http": proxy_str, "https": proxy_str}
-        try:
-            resp = requests.request(method, url, timeout=HTTP_TIMEOUT, proxies=proxies, **kwargs)
-            return resp, None
-        except Exception:
-            pass # 代理失败，下方自动进入直连
 
-    # 2. 直连兜底
+def make_request(method, url, **kwargs):
+    """
+    统一的请求函数，支持代理自动重试和直连兜底
+    """
+    last_error = None
+    
+    # 1. 尝试使用代理列表中的代理 (最多尝试 5 个不同的代理，增加成功率)
+    if PROXY_LIST:
+        tried_count = 0
+        max_tries = 5
+        while tried_count < max_tries:
+            proxy_str = get_next_proxy()
+            proxies = {"http": proxy_str, "https": proxy_str} if proxy_str else None
+            
+            try:
+                resp = requests.request(method, url, timeout=HTTP_TIMEOUT, proxies=proxies, **kwargs)
+                return resp, None
+            except Exception as e:
+                last_error = f"Proxy {proxy_str} failed: {str(e)}"
+                tried_count += 1
+                continue # 换下一个代理
+
+    # 2. 如果代理都失败了，或者没配代理，尝试直连
     try:
         resp = requests.request(method, url, timeout=HTTP_TIMEOUT, **kwargs)
         return resp, None
     except Exception as e:
-        return None, str(e)
+        last_error = f"Direct connection failed: {str(e)}"
+        return None, last_error
+
 
 def login_access_token(account, password):
     if is_phone(account):
@@ -204,7 +270,7 @@ def login_access_token(account, password):
         f"&state=REDIRECTION&token=access"
     )
 
-    res, err = make_request("POST", url, data=data, headers=headers, use_proxy=True)
+    res, err = make_request("POST", url, data=data, headers=headers)
     
     if err:
         return None, f"登录请求异常: {err}"
@@ -221,6 +287,7 @@ def login_access_token(account, password):
         return None, "登录请求过于频繁(429)"
     else:
         return None, f"登录请求失败: {res.status_code}"
+
 
 def grant_login_tokens(access_token, account):
     url = "https://account.huami.com/v2/client/login"
@@ -251,7 +318,7 @@ def grant_login_tokens(access_token, account):
             "third_name": "huami",
         }
 
-    resp, err = make_request("POST", url, data=data, headers=headers, use_proxy=True)
+    resp, err = make_request("POST", url, data=data, headers=headers)
     
     if err:
         return None, None, None, f"获取 login_token 异常: {err}"
@@ -273,6 +340,7 @@ def grant_login_tokens(access_token, account):
     except Exception:
         return None, None, None, f"提取 token_info 失败: {resp_json}"
 
+
 def grant_app_token(login_token):
     url = (
         "https://account-cn.huami.com/v1/client/app_tokens"
@@ -284,28 +352,27 @@ def grant_app_token(login_token):
         "User-Agent": "MiFit/5.3.0 (iPhone; iOS 14.7.1; Scale/3.00)"
     }
 
-    # 获取 app_token 关键步骤，多试几次代理
-    for _ in range(2):
-        resp, err = make_request("GET", url, headers=headers, use_proxy=True)
-        if not err and resp.status_code == 200:
-            try:
-                data = resp.json()
-                if "token_info" in data and "app_token" in data["token_info"]:
-                    return data["token_info"]["app_token"], None
-            except: pass
+    resp, err = make_request("GET", url, headers=headers)
     
-    # 最后尝试直连
-    resp, err = make_request("GET", url, headers=headers, use_proxy=False)
     if err:
         return None, f"获取 app_token 异常: {err}"
+
+    if resp.status_code == 429:
+        return None, "获取 app_token 过于频繁(429)"
+
     if resp.status_code != 200:
         return None, f"获取 app_token 失败: {resp.status_code}"
+
     try:
         data = resp.json()
-        if "token_info" in data and "app_token" in data["token_info"]:
-            return data["token_info"]["app_token"], None
-    except: pass
-    return None, "无法解析 app_token"
+    except Exception:
+        return None, "app_token 响应解析失败"
+
+    if "token_info" in data and "app_token" in data["token_info"]:
+        return data["token_info"]["app_token"], None
+
+    return None, f"无法解析 app_token: {data}"
+
 
 def check_app_token(app_token):
     url = "https://api-mifit-cn3.zepp.com/huami.health.getUserInfo.json"
@@ -340,8 +407,7 @@ def check_app_token(app_token):
         "clientid": "428135909242707968"
     }
 
-    # 校验尽量用直连，快且稳定
-    resp, err = make_request("GET", url, params=params, headers=headers, use_proxy=False)
+    resp, err = make_request("GET", url, params=params, headers=headers)
     
     if err:
         return False, f"校验 app_token 异常: {err}"
@@ -359,6 +425,7 @@ def check_app_token(app_token):
 
     return False, data.get("message", "app_token 无效")
 
+
 def build_data_json(date_today, device_id, steps):
     return (
         "%5b%7b%22data_hr%22%3a%22" + "%5c%2fv7%2b" * 480 +
@@ -366,6 +433,7 @@ def build_data_json(date_today, device_id, steps):
         "A" * 5760 +
         f"%22%2c%22tz%22%3a32%2c%22did%22%3a%22{device_id}%22%2c%22src%22%3a24%7d%5d%2c%22summary%22%3a%22%7b%5c%22v%5c%22%3a6%2c%5c%22slp%5c%22%3a%7b%5c%22st%5c%22%3a0%2c%5c%22ed%5c%22%3a0%2c%5c%22dp%5c%22%3a0%2c%5c%22lt%5c%22%3a0%2c%5c%22wk%5c%22%3a0%2c%5c%22usrSt%5c%22%3a-1440%2c%5c%22usrEd%5c%22%3a-1440%2c%5c%22wc%5c%22%3a0%2c%5c%22is%5c%22%3a0%2c%5c%22lb%5c%22%3a0%2c%5c%22to%5c%22%3a0%2c%5c%22dt%5c%22%3a0%2c%5c%22rhr%5c%22%3a0%2c%5c%22ss%5c%22%3a0%7d%2c%5c%22stp%5c%22%3a%7b%5c%22ttl%5c%22%3a{steps}%2c%5c%22dis%5c%22%3a0%2c%5c%22cal%5c%22%3a0%2c%5c%22wk%5c%22%3a0%2c%5c%22rn%5c%22%3a0%2c%5c%22runDist%5c%22%3a0%2c%5c%22runCal%5c%22%3a0%2c%5c%22stage%5c%22%3a%5b%5d%7d%2c%5c%22goal%5c%22%3a0%2c%5c%22tz%5c%22%3a%5c%2228800%5c%22%7d%22%2c%22source%22%3a24%2c%22type%22%3a0%7d%5d"
     )
+
 
 def change_steps(user_id, app_token, steps):
     sec_timestamp = int(time.time())
@@ -386,8 +454,7 @@ def change_steps(user_id, app_token, steps):
         f"&device_type=0&last_deviceid={device_id}&data_json={data_json}"
     )
 
-    # 提交步数是关键，先用代理试一次，失败则直连
-    resp, err = make_request("POST", url, data=data, headers=headers, use_proxy=True)
+    resp, err = make_request("POST", url, data=data, headers=headers)
     
     if err:
         return False, f"提交步数异常: {err}"
@@ -402,9 +469,11 @@ def change_steps(user_id, app_token, steps):
 
     return False, f"{res_json}"
 
+
 def get_cached_account(account):
     key = get_account_key(account)
     return token_cache.get(key)
+
 
 def set_cached_account(account, cache_data):
     key = get_account_key(account)
@@ -412,12 +481,14 @@ def set_cached_account(account, cache_data):
         token_cache[key] = cache_data
     save_token_cache()
 
+
 def delete_cached_account(account):
     key = get_account_key(account)
     with token_cache_lock:
         if key in token_cache:
             del token_cache[key]
     save_token_cache()
+
 
 def refresh_all_tokens(account, password):
     access_token, err = login_access_token(account, password)
@@ -444,6 +515,7 @@ def refresh_all_tokens(account, password):
     }
     set_cached_account(account, cache_data)
     return cache_data, None
+
 
 def get_valid_app_session(account, password):
     cache_data = get_cached_account(account)
@@ -472,9 +544,11 @@ def get_valid_app_session(account, password):
 
     return None, err
 
+
 @app.route("/")
 def index():
     return render_template("index.html")
+
 
 @app.route("/api/update_steps", methods=["POST"])
 def update_steps_api():
@@ -535,6 +609,7 @@ def update_steps_api():
         "message": f"提交失败: {msg2}"
     })
 
+
 @app.route("/api/cache_status", methods=["GET"])
 def cache_status():
     result = []
@@ -549,6 +624,7 @@ def cache_status():
         })
     return jsonify({"status": "success", "data": result})
 
+
 @app.route("/api/clear_cache", methods=["POST"])
 def clear_cache():
     try:
@@ -562,6 +638,7 @@ def clear_cache():
 
     delete_cached_account(account)
     return jsonify({"status": "success", "message": f"已清除 {mask_account(account)} 的缓存"})
+
 
 if __name__ == "__main__":
     load_token_cache()
