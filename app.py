@@ -16,95 +16,80 @@ if os.path.exists("/data"):
 else:
     TOKEN_FILE = "token_cache.json"
 
-# 代理 API 配置
-PROXY_API_URL = "https://proxy.scdn.io/api/get_proxy.php"
-PROXY_FETCH_COUNT = 10  # 每次从 API 获取多少个代理
-PROXY_PROTOCOL = "http" # 推荐 http 或 https，兼容性好
+# ⚠️【已填充】静态代理列表
+# 格式: "http://IP:端口"
+PROXY_LIST = [
+    "http://111.48.191.1:7890",
+    "http://101.251.204.174:8080",
+    "http://47.111.175.196:7897",
+    "http://13.230.49.39:8080",
+    "http://59.46.216.131:30001",
+    "http://112.111.13.253:7890",
+    "http://43.217.141.124:8008",
+    "http://56.68.77.224:9067",
+    "http://56.68.77.224:9772",
+    "http://56.68.77.224:40974",
+    "http://56.68.77.224:44799",
+    "http://56.68.77.224:42939",
+    "http://56.68.77.224:19328",
+    "http://56.68.77.224:53261",
+    "http://56.68.77.224:3125",
+    "http://56.68.77.224:12994",
+    "http://13.212.222.137:8787",
+    "http://13.212.222.137:31281",
+    "http://120.92.108.86:7890",
+    "http://13.212.222.137:11571",
+    "http://13.212.222.137:969",
+    "http://13.212.222.137:28024",
+    "http://13.212.222.137:476",
+    "http://13.212.222.137:11169",
+    "http://13.212.222.137:29503",
+    "http://61.49.87.3:80",
+    "http://56.68.77.224:29522",
+    "http://13.212.14.16:9061",
+    "http://13.212.14.16:1036",
+    "http://56.68.77.224:12994",
+    "http://13.212.222.137:44909",
+    "http://13.212.222.137:57365",
+    "http://13.233.195.7:7928",
+    "http://13.233.195.7:562",
+    "http://95.40.79.184:9940",
+    "http://13.212.110.200:2450",
+    "http://13.212.14.16:45684",
+    "http://56.68.77.224:999",
+    "http://43.208.16.199:4002",
+    "http://13.212.14.16:16779",
+    "http://13.212.222.137:28080",
+    "http://56.68.77.224:20479",
+    "http://13.212.222.137:4474",
+    "http://116.171.106.15:3443",
+    "http://39.98.86.246:8118",
+]
 
-MAX_USES_PER_PROXY = 3  # 每个代理最多使用3次就淘汰，防止被风控
-HTTP_TIMEOUT = 15
+HTTP_TIMEOUT = 10
+APP_TOKEN_CHECK_TIMEOUT = 10
 
 # --- 全局变量 ---
-APP_TOKEN_CHECK_TIMEOUT = 10
 token_cache_lock = threading.Lock()
 token_cache = {}
 
-class ProxyManager:
-    def __init__(self):
-        self.proxies = []
-        self.usage_count = {}
-        self.lock = threading.Lock()
-        self.last_fetch_time = 0
-        self.fetch_interval = 60 # 至少间隔60秒才重新请求API，防止被封
+# 简单的代理轮询索引
+proxy_index_lock = threading.Lock()
+current_proxy_index = 0
 
-    def get_proxy_dict(self, proxy_str):
-        """将 'ip:port' 转换为 requests 需要的 {'http': '...', 'https': '...'} 格式"""
-        if not proxy_str:
-            return None
-        # 确保格式为 http://ip:port
-        if not proxy_str.startswith("http"):
-            proxy_url = f"http://{proxy_str}"
-        else:
-            proxy_url = proxy_str
-        return {"http": proxy_url, "https": proxy_url}
-
-    def fetch_proxies_from_api(self):
-        """从 API 获取新代理"""
-        try:
-            url = f"{PROXY_API_URL}?protocol={PROXY_PROTOCOL}&count={PROXY_FETCH_COUNT}"
-            resp = requests.get(url, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                if data.get("code") == 200 and "proxies" in data["data"]:
-                    new_proxies = data["data"]["proxies"]
-                    with self.lock:
-                        for p in new_proxies:
-                            if p not in self.proxies:
-                                self.proxies.append(p)
-                                self.usage_count[p] = 0
-                    print(f"Proxy Manager: Fetched {len(new_proxies)} new proxies. Total: {len(self.proxies)}")
-                    self.last_fetch_time = time.time()
-                    return True
-        except Exception as e:
-            print(f"Proxy Manager: Fetch failed - {e}")
-        return False
-
-    def get_next_proxy(self):
-        """获取下一个可用代理，如果不够则自动补充"""
-        with self.lock:
-            # 1. 清理掉用废的代理
-            active_proxies = [p for p in self.proxies if self.usage_count.get(p, 0) < MAX_USES_PER_PROXY]
-            
-            # 2. 如果活跃代理少于3个，且距离上次获取超过一定时间，则尝试补货
-            if len(active_proxies) < 3 and (time.time() - self.last_fetch_time > self.fetch_interval):
-                # 解锁去获取，避免死锁
-                pass 
-            elif not active_proxies:
-                # 如果彻底没代理了，强制获取
-                 if time.time() - self.last_fetch_time > 10: # 紧急情况下缩短间隔
-                     self.fetch_proxies_from_api()
-                     active_proxies = [p for p in self.proxies if self.usage_count.get(p, 0) < MAX_USES_PER_PROXY]
-
-            if not active_proxies:
-                # 如果还是没代理，返回 None 使用直连
-                return None
-
-            # 3. 随机选一个
-            selected = random.choice(active_proxies)
-            self.usage_count[selected] = self.usage_count.get(selected, 0) + 1
-            return selected
-
-    def mark_proxy_bad(self, proxy_str):
-        """标记某个代理失效，立即增加其计数使其被淘汰"""
-        with self.lock:
-            if proxy_str in self.usage_count:
-                self.usage_count[proxy_str] = MAX_USES_PER_PROXY + 1
-
-# 初始化代理管理器
-proxy_manager = ProxyManager()
-# 启动时先尝试获取一次
-proxy_manager.fetch_proxies_from_api()
-
+def get_next_proxy():
+    """
+    轮询获取一个代理。
+    如果列表为空，返回 None (直连)。
+    """
+    global current_proxy_index
+    if not PROXY_LIST:
+        return None
+    
+    with proxy_index_lock:
+        proxy = PROXY_LIST[current_proxy_index % len(PROXY_LIST)]
+        current_proxy_index += 1
+        return proxy
 
 def load_token_cache():
     global token_cache
@@ -163,7 +148,38 @@ def get_client_login_headers():
     }
 
 
-def login_access_token(account, password, proxy_str=None):
+def make_request(method, url, **kwargs):
+    """
+    统一的请求函数，支持代理自动重试和直连兜底
+    """
+    last_error = None
+    
+    # 1. 尝试使用代理列表中的代理 (最多尝试 3 个不同的代理，避免全部试完太慢)
+    if PROXY_LIST:
+        tried_count = 0
+        max_tries = 3
+        while tried_count < max_tries:
+            proxy_str = get_next_proxy()
+            proxies = {"http": proxy_str, "https": proxy_str} if proxy_str else None
+            
+            try:
+                resp = requests.request(method, url, timeout=HTTP_TIMEOUT, proxies=proxies, **kwargs)
+                return resp, None
+            except Exception as e:
+                last_error = f"Proxy {proxy_str} failed: {str(e)}"
+                tried_count += 1
+                continue # 换下一个代理
+
+    # 2. 如果代理都失败了，或者没配代理，尝试直连
+    try:
+        resp = requests.request(method, url, timeout=HTTP_TIMEOUT, **kwargs)
+        return resp, None
+    except Exception as e:
+        last_error = f"Direct connection failed: {str(e)}"
+        return None, last_error
+
+
+def login_access_token(account, password):
     if is_phone(account):
         login_account = f"+86{account}"
     else:
@@ -183,28 +199,26 @@ def login_access_token(account, password, proxy_str=None):
         f"&state=REDIRECTION&token=access"
     )
 
-    proxies = proxy_manager.get_proxy_dict(proxy_str) if proxy_str else None
-
-    try:
-        res = requests.post(url, data=data, headers=headers, timeout=HTTP_TIMEOUT, proxies=proxies)
-    except Exception as e:
-        return None, f"登录请求异常: {str(e)}", proxy_str
+    res, err = make_request("POST", url, data=data, headers=headers)
+    
+    if err:
+        return None, f"登录请求异常: {err}"
 
     if res.status_code == 200:
         try:
             data_json = res.json()
         except Exception:
-            return None, "登录响应解析失败", proxy_str
+            return None, "登录响应解析失败"
         if "access" in data_json:
-            return data_json["access"], None, proxy_str
-        return None, "用户名或密码不正确", proxy_str
+            return data_json["access"], None
+        return None, "用户名或密码不正确"
     elif res.status_code == 429:
-        return None, "登录请求过于频繁(429)", proxy_str
+        return None, "登录请求过于频繁(429)"
     else:
-        return None, f"登录请求失败: {res.status_code}", proxy_str
+        return None, f"登录请求失败: {res.status_code}"
 
 
-def grant_login_tokens(access_token, account, proxy_str=None):
+def grant_login_tokens(access_token, account):
     url = "https://account.huami.com/v2/client/login"
     headers = get_client_login_headers()
 
@@ -233,32 +247,30 @@ def grant_login_tokens(access_token, account, proxy_str=None):
             "third_name": "huami",
         }
 
-    proxies = proxy_manager.get_proxy_dict(proxy_str) if proxy_str else None
-
-    try:
-        resp = requests.post(url, data=data, headers=headers, timeout=HTTP_TIMEOUT, proxies=proxies)
-    except Exception as e:
-        return None, None, None, f"获取 login_token 异常: {str(e)}", proxy_str
+    resp, err = make_request("POST", url, data=data, headers=headers)
+    
+    if err:
+        return None, None, None, f"获取 login_token 异常: {err}"
 
     if resp.status_code == 429:
-        return None, None, None, "获取 login_token 过于频繁(429)", proxy_str
+        return None, None, None, "获取 login_token 过于频繁(429)"
 
     try:
         resp_json = resp.json()
     except Exception:
-        return None, None, None, "login_token 响应解析失败", proxy_str
+        return None, None, None, "login_token 响应解析失败"
 
     try:
         token_info = resp_json["token_info"]
         login_token = token_info["login_token"]
         user_id = token_info["user_id"]
         app_token = token_info.get("app_token")
-        return login_token, app_token, user_id, None, proxy_str
+        return login_token, app_token, user_id, None
     except Exception:
-        return None, None, None, f"提取 token_info 失败: {resp_json}", proxy_str
+        return None, None, None, f"提取 token_info 失败: {resp_json}"
 
 
-def grant_app_token(login_token, proxy_str=None):
+def grant_app_token(login_token):
     url = (
         "https://account-cn.huami.com/v1/client/app_tokens"
         f"?app_name=com.xiaomi.hm.health"
@@ -269,31 +281,29 @@ def grant_app_token(login_token, proxy_str=None):
         "User-Agent": "MiFit/5.3.0 (iPhone; iOS 14.7.1; Scale/3.00)"
     }
 
-    proxies = proxy_manager.get_proxy_dict(proxy_str) if proxy_str else None
-
-    try:
-        resp = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT, proxies=proxies)
-    except Exception as e:
-        return None, f"获取 app_token 异常: {str(e)}", proxy_str
+    resp, err = make_request("GET", url, headers=headers)
+    
+    if err:
+        return None, f"获取 app_token 异常: {err}"
 
     if resp.status_code == 429:
-        return None, "获取 app_token 过于频繁(429)", proxy_str
+        return None, "获取 app_token 过于频繁(429)"
 
     if resp.status_code != 200:
-        return None, f"获取 app_token 失败: {resp.status_code}", proxy_str
+        return None, f"获取 app_token 失败: {resp.status_code}"
 
     try:
         data = resp.json()
     except Exception:
-        return None, "app_token 响应解析失败", proxy_str
+        return None, "app_token 响应解析失败"
 
     if "token_info" in data and "app_token" in data["token_info"]:
-        return data["token_info"]["app_token"], None, proxy_str
+        return data["token_info"]["app_token"], None
 
-    return None, f"无法解析 app_token: {data}", proxy_str
+    return None, f"无法解析 app_token: {data}"
 
 
-def check_app_token(app_token, proxy_str=None):
+def check_app_token(app_token):
     url = "https://api-mifit-cn3.zepp.com/huami.health.getUserInfo.json"
     params = {
         "r": str(uuid.uuid4()),
@@ -326,18 +336,16 @@ def check_app_token(app_token, proxy_str=None):
         "clientid": "428135909242707968"
     }
 
-    proxies = proxy_manager.get_proxy_dict(proxy_str) if proxy_str else None
+    resp, err = make_request("GET", url, params=params, headers=headers)
+    
+    if err:
+        return False, f"校验 app_token 异常: {err}"
+
+    if resp.status_code != 200:
+        return False, f"校验 app_token 失败: {resp.status_code}"
 
     try:
-        response = requests.get(url, params=params, headers=headers, timeout=APP_TOKEN_CHECK_TIMEOUT, proxies=proxies)
-    except Exception as e:
-        return False, f"校验 app_token 异常: {str(e)}"
-
-    if response.status_code != 200:
-        return False, f"校验 app_token 失败: {response.status_code}"
-
-    try:
-        data = response.json()
+        data = resp.json()
     except Exception:
         return False, "校验 app_token 响应解析失败"
 
@@ -356,7 +364,7 @@ def build_data_json(date_today, device_id, steps):
     )
 
 
-def change_steps(user_id, app_token, steps, proxy_str=None):
+def change_steps(user_id, app_token, steps):
     sec_timestamp = int(time.time())
     date_today = time.strftime("%F")
     device_id = "0000000000000000"
@@ -375,17 +383,15 @@ def change_steps(user_id, app_token, steps, proxy_str=None):
         f"&device_type=0&last_deviceid={device_id}&data_json={data_json}"
     )
 
-    proxies = proxy_manager.get_proxy_dict(proxy_str) if proxy_str else None
+    resp, err = make_request("POST", url, data=data, headers=headers)
+    
+    if err:
+        return False, f"提交步数异常: {err}"
 
     try:
-        res = requests.post(url, data=data, headers=headers, timeout=HTTP_TIMEOUT, proxies=proxies)
-    except Exception as e:
-        return False, f"提交步数异常: {str(e)}"
-
-    try:
-        res_json = res.json()
+        res_json = resp.json()
     except Exception:
-        return False, f"提交步数响应解析失败，状态码: {res.status_code}"
+        return False, f"提交步数响应解析失败，状态码: {resp.status_code}"
 
     if res_json.get("message") == "success":
         return True, "success"
@@ -414,50 +420,30 @@ def delete_cached_account(account):
 
 
 def refresh_all_tokens(account, password):
-    max_retries = 3
-    last_err = ""
-    
-    for i in range(max_retries):
-        proxy_str = proxy_manager.get_next_proxy()
-        
-        access_token, err, used_proxy = login_access_token(account, password, proxy_str)
-        if not access_token:
-            if "429" in err and used_proxy:
-                proxy_manager.mark_proxy_bad(used_proxy)
-                continue
-            last_err = err
-            continue
+    access_token, err = login_access_token(account, password)
+    if not access_token:
+        return None, f"获取 access_token 失败: {err}"
 
-        login_token, app_token, user_id, err, used_proxy = grant_login_tokens(access_token, account, used_proxy)
-        if not login_token:
-            if "429" in err and used_proxy:
-                proxy_manager.mark_proxy_bad(used_proxy)
-                continue
-            last_err = err
-            continue
+    login_token, app_token, user_id, err = grant_login_tokens(access_token, account)
+    if not login_token:
+        return None, f"获取 login_token 失败: {err}"
 
+    if not app_token:
+        app_token, err = grant_app_token(login_token)
         if not app_token:
-            app_token, err, used_proxy = grant_app_token(login_token, used_proxy)
-            if not app_token:
-                if "429" in err and used_proxy:
-                    proxy_manager.mark_proxy_bad(used_proxy)
-                    continue
-                last_err = err
-                continue
+            return None, f"获取 app_token 失败: {err}"
 
-        cache_data = {
-            "account": get_account_key(account),
-            "access_token": access_token,
-            "login_token": login_token,
-            "app_token": app_token,
-            "user_id": user_id,
-            "device_id": "00:00:00:00:00:00",
-            "updated_at": now_ts()
-        }
-        set_cached_account(account, cache_data)
-        return cache_data, None
-
-    return None, f"多次尝试后仍失败: {last_err}"
+    cache_data = {
+        "account": get_account_key(account),
+        "access_token": access_token,
+        "login_token": login_token,
+        "app_token": app_token,
+        "user_id": user_id,
+        "device_id": "00:00:00:00:00:00",
+        "updated_at": now_ts()
+    }
+    set_cached_account(account, cache_data)
+    return cache_data, None
 
 
 def get_valid_app_session(account, password):
@@ -474,12 +460,7 @@ def get_valid_app_session(account, password):
                 return cache_data, None
 
         if login_token:
-            proxy_str = proxy_manager.get_next_proxy()
-            new_app_token, err, used_proxy = grant_app_token(login_token, proxy_str)
-            if not new_app_token and used_proxy:
-                 # 尝试直连兜底
-                 new_app_token, err, _ = grant_app_token(login_token, None)
-            
+            new_app_token, err = grant_app_token(login_token)
             if new_app_token:
                 cache_data["app_token"] = new_app_token
                 cache_data["updated_at"] = now_ts()
@@ -526,13 +507,7 @@ def update_steps_api():
             "message": f"获取有效会话失败: {err}"
         })
 
-    # 提交步数时也尝试使用代理
-    proxy_str = proxy_manager.get_next_proxy()
-    success, msg = change_steps(session_data["user_id"], session_data["app_token"], str(steps_int), proxy_str)
-    
-    # 如果提交失败且用了代理，尝试直连重试
-    if not success and proxy_str:
-        success, msg = change_steps(session_data["user_id"], session_data["app_token"], str(steps_int), None)
+    success, msg = change_steps(session_data["user_id"], session_data["app_token"], str(steps_int))
 
     if success:
         session_data["updated_at"] = now_ts()
@@ -549,11 +524,7 @@ def update_steps_api():
             "message": f"提交失败，且刷新 token 失败: {msg} / {err2}"
         })
 
-    proxy_str2 = proxy_manager.get_next_proxy()
-    success2, msg2 = change_steps(new_session["user_id"], new_session["app_token"], str(steps_int), proxy_str2)
-    if not success2 and proxy_str2:
-        success2, msg2 = change_steps(new_session["user_id"], new_session["app_token"], str(steps_int), None)
-
+    success2, msg2 = change_steps(new_session["user_id"], new_session["app_token"], str(steps_int))
     if success2:
         new_session["updated_at"] = now_ts()
         set_cached_account(account, new_session)
