@@ -6,65 +6,18 @@ import json
 import os
 import uuid
 import threading
-import random
 
 app = Flask(__name__)
 
-# --- 配置区域 ---
-if os.path.exists("/data"):
-    TOKEN_FILE = "/data/token_cache.json"
-else:
-    TOKEN_FILE = "token_cache.json"
+# 【重要】写死为 Render 的持久化磁盘路径
+TOKEN_FILE = "/data/token_cache.json"
 
-# ⚠️【最新替换版】仅包含你刚刚提供的代理，已去重
-PROXY_LIST = [
-    "http://36.138.53.26:10019",
-    "http://218.77.183.214:5224",
-    "http://120.132.52.172:8888",
-    "http://39.185.41.193:5911",
-    "http://113.108.13.120:8083",
-    "http://49.4.117.146:3128",
-    "http://61.158.175.38:9002",
-    "http://58.216.109.17:800",
-    "http://116.171.106.111:3000",
-    "http://203.19.38.114:1080",
-    "http://116.171.106.78:3000",
-    "http://36.138.53.26:10017",
-    "http://116.171.106.15:3000",
-    "http://113.204.79.230:9091",
-    "http://112.93.118.61:3128",
-    "http://120.92.211.211:7890",
-    "http://115.231.181.40:8128",
-    "http://58.216.109.14:800",
-    "http://221.231.13.198:1080",
-    "http://103.213.97.78:80",
-    "http://117.82.138.100:1080",
-]
-
-HTTP_TIMEOUT = 10
 APP_TOKEN_CHECK_TIMEOUT = 10
+HTTP_TIMEOUT = 10
 
-# --- 全局变量 ---
 token_cache_lock = threading.Lock()
 token_cache = {}
 
-# 简单的代理轮询索引
-proxy_index_lock = threading.Lock()
-current_proxy_index = 0
-
-def get_next_proxy():
-    """
-    轮询获取一个代理。
-    如果列表为空，返回 None (直连)。
-    """
-    global current_proxy_index
-    if not PROXY_LIST:
-        return None
-    
-    with proxy_index_lock:
-        proxy = PROXY_LIST[current_proxy_index % len(PROXY_LIST)]
-        current_proxy_index += 1
-        return proxy
 
 def load_token_cache():
     global token_cache
@@ -72,18 +25,22 @@ def load_token_cache():
         try:
             with open(TOKEN_FILE, "r", encoding="utf-8") as f:
                 token_cache = json.load(f)
-        except Exception:
+        except Exception as e:
+            print(f"Load cache error: {e}")
             token_cache = {}
     else:
+        print("Token file not found, starting with empty cache.")
         token_cache = {}
 
 
 def save_token_cache():
     with token_cache_lock:
         try:
+            # 确保 /data 目录存在
             dir_name = os.path.dirname(TOKEN_FILE)
             if dir_name and not os.path.exists(dir_name):
                 os.makedirs(dir_name)
+            
             with open(TOKEN_FILE, "w", encoding="utf-8") as f:
                 json.dump(token_cache, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -123,37 +80,6 @@ def get_client_login_headers():
     }
 
 
-def make_request(method, url, **kwargs):
-    """
-    统一的请求函数，支持代理自动重试和直连兜底
-    """
-    last_error = None
-    
-    # 1. 尝试使用代理列表中的代理 (最多尝试 5 个不同的代理，增加成功率)
-    if PROXY_LIST:
-        tried_count = 0
-        max_tries = 5
-        while tried_count < max_tries:
-            proxy_str = get_next_proxy()
-            proxies = {"http": proxy_str, "https": proxy_str} if proxy_str else None
-            
-            try:
-                resp = requests.request(method, url, timeout=HTTP_TIMEOUT, proxies=proxies, **kwargs)
-                return resp, None
-            except Exception as e:
-                last_error = f"Proxy {proxy_str} failed: {str(e)}"
-                tried_count += 1
-                continue # 换下一个代理
-
-    # 2. 如果代理都失败了，或者没配代理，尝试直连
-    try:
-        resp = requests.request(method, url, timeout=HTTP_TIMEOUT, **kwargs)
-        return resp, None
-    except Exception as e:
-        last_error = f"Direct connection failed: {str(e)}"
-        return None, last_error
-
-
 def login_access_token(account, password):
     if is_phone(account):
         login_account = f"+86{account}"
@@ -174,10 +100,10 @@ def login_access_token(account, password):
         f"&state=REDIRECTION&token=access"
     )
 
-    res, err = make_request("POST", url, data=data, headers=headers)
-    
-    if err:
-        return None, f"登录请求异常: {err}"
+    try:
+        res = requests.post(url, data=data, headers=headers, timeout=HTTP_TIMEOUT)
+    except Exception as e:
+        return None, f"登录请求异常: {str(e)}"
 
     if res.status_code == 200:
         try:
@@ -222,10 +148,10 @@ def grant_login_tokens(access_token, account):
             "third_name": "huami",
         }
 
-    resp, err = make_request("POST", url, data=data, headers=headers)
-    
-    if err:
-        return None, None, None, f"获取 login_token 异常: {err}"
+    try:
+        resp = requests.post(url, data=data, headers=headers, timeout=HTTP_TIMEOUT)
+    except Exception as e:
+        return None, None, None, f"获取 login_token 异常: {str(e)}"
 
     if resp.status_code == 429:
         return None, None, None, "获取 login_token 过于频繁(429)"
@@ -256,10 +182,10 @@ def grant_app_token(login_token):
         "User-Agent": "MiFit/5.3.0 (iPhone; iOS 14.7.1; Scale/3.00)"
     }
 
-    resp, err = make_request("GET", url, headers=headers)
-    
-    if err:
-        return None, f"获取 app_token 异常: {err}"
+    try:
+        resp = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT)
+    except Exception as e:
+        return None, f"获取 app_token 异常: {str(e)}"
 
     if resp.status_code == 429:
         return None, "获取 app_token 过于频繁(429)"
@@ -311,16 +237,16 @@ def check_app_token(app_token):
         "clientid": "428135909242707968"
     }
 
-    resp, err = make_request("GET", url, params=params, headers=headers)
-    
-    if err:
-        return False, f"校验 app_token 异常: {err}"
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=APP_TOKEN_CHECK_TIMEOUT)
+    except Exception as e:
+        return False, f"校验 app_token 异常: {str(e)}"
 
-    if resp.status_code != 200:
-        return False, f"校验 app_token 失败: {resp.status_code}"
+    if response.status_code != 200:
+        return False, f"校验 app_token 失败: {response.status_code}"
 
     try:
-        data = resp.json()
+        data = response.json()
     except Exception:
         return False, "校验 app_token 响应解析失败"
 
@@ -358,15 +284,15 @@ def change_steps(user_id, app_token, steps):
         f"&device_type=0&last_deviceid={device_id}&data_json={data_json}"
     )
 
-    resp, err = make_request("POST", url, data=data, headers=headers)
-    
-    if err:
-        return False, f"提交步数异常: {err}"
+    try:
+        res = requests.post(url, data=data, headers=headers, timeout=HTTP_TIMEOUT)
+    except Exception as e:
+        return False, f"提交步数异常: {str(e)}"
 
     try:
-        res_json = resp.json()
+        res_json = res.json()
     except Exception:
-        return False, f"提交步数响应解析失败，状态码: {resp.status_code}"
+        return False, f"提交步数响应解析失败，状态码: {res.status_code}"
 
     if res_json.get("message") == "success":
         return True, "success"
@@ -546,5 +472,6 @@ def clear_cache():
 
 if __name__ == "__main__":
     load_token_cache()
+    # Render 环境下，端口由环境变量决定
     PORT = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=PORT, debug=False)
